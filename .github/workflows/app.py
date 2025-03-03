@@ -46,3 +46,43 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
     app.run(debug=True)
+
+@app.route('/metrics/hired_per_quarter', methods=['GET'])
+def hired_per_quarter():
+    query = """
+    SELECT d.name as department, j.title as job,
+           SUM(CASE WHEN strftime('%m', e.hire_date) BETWEEN '01' AND '03' THEN 1 ELSE 0 END) as Q1,
+           SUM(CASE WHEN strftime('%m', e.hire_date) BETWEEN '04' AND '06' THEN 1 ELSE 0 END) as Q2,
+           SUM(CASE WHEN strftime('%m', e.hire_date) BETWEEN '07' AND '09' THEN 1 ELSE 0 END) as Q3,
+           SUM(CASE WHEN strftime('%m', e.hire_date) BETWEEN '10' AND '12' THEN 1 ELSE 0 END) as Q4
+    FROM employee e
+    JOIN department d ON e.department_id = d.id
+    JOIN job j ON e.job_id = j.id
+    WHERE strftime('%Y', e.hire_date) = '2021'
+    GROUP BY d.name, j.title
+    ORDER BY d.name, j.title
+    """
+    result = db.session.execute(query).fetchall()
+    return jsonify([dict(row) for row in result])
+
+@app.route('/metrics/departments_above_mean', methods=['GET'])
+def departments_above_mean():
+    query = """
+    WITH hires_per_department AS (
+        SELECT d.id, d.name, COUNT(e.id) as hired
+        FROM employee e
+        JOIN department d ON e.department_id = d.id
+        WHERE strftime('%Y', e.hire_date) = '2021'
+        GROUP BY d.id, d.name
+    ),
+    mean_hires AS (
+        SELECT AVG(hired) as mean_hired
+        FROM hires_per_department
+    )
+    SELECT hpd.id, hpd.name as department, hpd.hired
+    FROM hires_per_department hpd, mean_hires mh
+    WHERE hpd.hired > mh.mean_hired
+    ORDER BY hpd.hired DESC
+    """
+    result = db.session.execute(query).fetchall()
+    return jsonify([dict(row) for row in result])
